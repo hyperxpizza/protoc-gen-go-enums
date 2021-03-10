@@ -1,4 +1,4 @@
-module github.com/mkmarek/protoc-gen-go-xml-enums
+module github.com/mkmarek/protoc-gen-go-enums
 
 go 1.14
 

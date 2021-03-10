@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"html/template"
 	"io/ioutil"
 	"os"
 	"path"
@@ -32,32 +34,44 @@ func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath str
 	return "", opt, true
 }
 
-func getFileName(file *descriptorpb.FileDescriptorProto) string {
+func (runner *XMLEnums) getFileName(file *descriptorpb.FileDescriptorProto) (string, error) {
 	name := *file.Name
 	if ext := path.Ext(name); ext == ".proto" || ext == ".protodevel" {
 		name = name[:len(name)-len(ext)]
 	}
-	name += ".xml.go"
+
+	parameter := runner.Request.GetParameter()
+	if parameter == "xml" {
+		name += ".xml.go"
+	} else if parameter == "json" {
+		name += ".json.go"
+	} else {
+		return "", fmt.Errorf("Unknown parameter %s", parameter)
+	}
 
 	if packagePath, _, ok := parsePackageOption(file); ok && packagePath != "" {
 		_, name = path.Split(name)
 		name = path.Join(string(packagePath), name)
 	}
 
-	return name
+	return name, nil
 }
 
-func (runner *XMLEnums) generateXMLMarshallers() error {
+func (runner *XMLEnums) generateMarshallers(fileTemplate *template.Template, enumTemplate *template.Template) error {
 
 	for _, file := range runner.Request.ProtoFile {
-		fileContent, err, found := applyTemplate(file)
+		fileContent, err, found := applyTemplate(file, fileTemplate, enumTemplate)
 
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		if found {
-			filename := getFileName(file)
+			filename, err := runner.getFileName(file)
+
+			if err != nil {
+				return err
+			}
 
 			var outFile plugin.CodeGeneratorResponse_File
 			outFile.Name = &filename
@@ -75,7 +89,15 @@ func (runner *XMLEnums) generateCode() error {
 	files := make([]*plugin.CodeGeneratorResponse_File, 0)
 	runner.Response.File = files
 
-	err := runner.generateXMLMarshallers()
+	var err error
+	parameter := runner.Request.GetParameter()
+	if parameter == "xml" {
+		err = runner.generateMarshallers(xmlFileTemplate, xmlEnumTemplate)
+	} else if parameter == "json" {
+		err = runner.generateMarshallers(jsonFileTemplate, jsonEnumTemplate)
+	} else {
+		return fmt.Errorf("Unknown parameter %s", parameter)
+	}
 
 	if err != nil {
 		return err

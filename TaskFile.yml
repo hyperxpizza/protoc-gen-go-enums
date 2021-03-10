@@ -3,7 +3,7 @@ version: '3'
 tasks:
   gen_e2e_proto:
     cmds:
-      - protoc --plugin protoc-gen-go-xml-enums --go-xml-enums_out=e2e --proto_path=. --go_out=plugins=grpc:e2e e2e/e2e.proto
+      - protoc --plugin protoc-gen-go-enums --go-enums_out=json:e2e --go-enums_out=xml:e2e --proto_path=. --go_out=plugins=grpc:e2e e2e/e2e.proto
       - protoc-go-inject-tag -input=./e2e/e2e.pb.go
     silent: true
   run_e2e:
@@ -12,7 +12,7 @@ tasks:
     silent: true
   build:
     cmds:
-      - go build -o protoc-gen-go-xml-enums .
+      - go build -o protoc-gen-go-enums .
     silent: true
   e2e_all:
     cmds:
