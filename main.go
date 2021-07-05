@@ -106,9 +106,13 @@ func (runner *XMLEnums) generateCode() error {
 	return nil
 }
 
+var SupportedFeatures = uint64(plugin.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+
 func main() {
 	req := &plugin.CodeGeneratorRequest{}
-	resp := &plugin.CodeGeneratorResponse{}
+	resp := &plugin.CodeGeneratorResponse{
+		SupportedFeatures: &SupportedFeatures,
+	}
 
 	data, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
