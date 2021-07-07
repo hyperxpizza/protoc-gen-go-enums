@@ -86,6 +86,8 @@ func applyTemplate(
 		}); err != nil {
 			return "", err, false
 		}
+
+		found = true
 	}
 
 	for _, msg := range f.GetMessageType() {
