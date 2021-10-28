@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"strings"
 
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -20,10 +21,14 @@ func (h tplFile) GetPackageName() string {
 	_, pkg, ok := parsePackageOption(h.FileDescriptorProto)
 
 	if ok {
+		pkg = strings.ReplaceAll(pkg, "-", "_")
 		return pkg
 	}
 
-	return h.GetPackage()
+	pkg = h.GetPackage()
+	pkg = strings.ReplaceAll(pkg, "-", "_")
+
+	return pkg
 }
 
 func applyTemplateForMessageType(
