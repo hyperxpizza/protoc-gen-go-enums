@@ -13,10 +13,10 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-type XMLEnums struct {
+type Runner struct {
 	Request             *plugin.CodeGeneratorRequest
 	Response            *plugin.CodeGeneratorResponse
-	mode                string // "xml" or "json"
+	modes               []string // "xml" or "json"
 	pathsSourceRelative bool
 }
 
@@ -36,40 +36,42 @@ func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath str
 	return "", opt, true
 }
 
-func (runner *XMLEnums) parseParams(param string) error {
+func (runner *Runner) parseParams(param string) error {
 	if strings.TrimSpace(param) == "" {
-		return fmt.Errorf("no parameter provided: expected 'xml' or 'json'")
+		return fmt.Errorf("no parameter provided: expected 'xml', 'json' or 'gql")
 	}
 	for _, part := range strings.Split(param, ",") {
 		part = strings.TrimSpace(part)
 		switch {
-		case part == "xml" || part == "json":
-			runner.mode = part
+		case part == "xml" || part == "json" || part == "gql":
+			runner.modes = append(runner.modes, part)
+			continue
 		case part == "paths=source_relative":
 			runner.pathsSourceRelative = true
 		default:
-			// Ignore unknown params
 		}
 	}
-	if runner.mode != "xml" && runner.mode != "json" {
-		return fmt.Errorf("unknown or missing parameter: got %q, want 'xml' or 'json'", param)
+	if runner.modes == nil {
+		return fmt.Errorf("unknown or missing parameter: got %q, want 'xml, 'json' or 'gql'", param)
 	}
 	return nil
 }
 
-func (runner *XMLEnums) getFileName(file *descriptorpb.FileDescriptorProto) (string, error) {
+func (runner *Runner) getFileName(file *descriptorpb.FileDescriptorProto, mode string) (string, error) {
 	name := file.GetName()
 	if ext := path.Ext(name); ext == ".proto" || ext == ".protodevel" {
 		name = name[:len(name)-len(ext)]
 	}
 
-	switch runner.mode {
+	switch mode {
 	case "xml":
 		name += ".enums.xml.go"
 	case "json":
 		name += ".enums.json.go"
+	case "gql":
+		name += ".enums.gql.go"
 	default:
-		return "", fmt.Errorf("unsupported mode %q", runner.mode)
+		return "", fmt.Errorf("unsupported mode %q", mode)
 	}
 
 	// If paths=source_relative is NOT set, mirror the original behavior:
@@ -84,14 +86,14 @@ func (runner *XMLEnums) getFileName(file *descriptorpb.FileDescriptorProto) (str
 	return name, nil
 }
 
-func (runner *XMLEnums) generateMarshallers(fileTemplate *template.Template, enumTemplate *template.Template) error {
+func (runner *Runner) generateMarshallers(fileTemplate *template.Template, enumTemplate *template.Template, mode string) error {
 	for _, file := range runner.Request.ProtoFile {
 		fileContent, err, found := applyTemplate(file, fileTemplate, enumTemplate)
 		if err != nil {
 			return err
 		}
 		if found {
-			filename, err := runner.getFileName(file)
+			filename, err := runner.getFileName(file, mode)
 			if err != nil {
 				return err
 			}
@@ -105,7 +107,7 @@ func (runner *XMLEnums) generateMarshallers(fileTemplate *template.Template, enu
 	return nil
 }
 
-func (runner *XMLEnums) generateCode() error {
+func (runner *Runner) generateCode() error {
 	runner.Response.File = make([]*plugin.CodeGeneratorResponse_File, 0)
 
 	// Parse params once
@@ -114,14 +116,20 @@ func (runner *XMLEnums) generateCode() error {
 	}
 
 	var err error
-	switch runner.mode {
-	case "xml":
-		err = runner.generateMarshallers(xmlFileTemplate, xmlEnumTemplate)
-	case "json":
-		err = runner.generateMarshallers(jsonFileTemplate, jsonEnumTemplate)
-	default:
-		err = fmt.Errorf("unknown mode %q", runner.mode)
+
+	for _, mode := range runner.modes {
+		switch mode {
+		case "xml":
+			err = runner.generateMarshallers(xmlFileTemplate, xmlEnumTemplate, mode)
+		case "json":
+			err = runner.generateMarshallers(jsonFileTemplate, jsonEnumTemplate, mode)
+		case "gql":
+			err = runner.generateMarshallers(gqlFileTemplate, gqlEnumTemplate, mode)
+		default:
+			err = fmt.Errorf("unknown mode %q", mode)
+		}
 	}
+
 	return err
 }
 
@@ -143,7 +151,7 @@ func main() {
 		panic(err)
 	}
 
-	runner := &XMLEnums{
+	runner := &Runner{
 		Request:  req,
 		Response: resp,
 	}
