@@ -14,8 +14,10 @@ import (
 )
 
 type XMLEnums struct {
-	Request  *plugin.CodeGeneratorRequest
-	Response *plugin.CodeGeneratorResponse
+	Request             *plugin.CodeGeneratorRequest
+	Response            *plugin.CodeGeneratorResponse
+	mode                string // "xml" or "json"
+	pathsSourceRelative bool
 }
 
 func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath string, pkg string, ok bool) {
@@ -34,76 +36,93 @@ func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath str
 	return "", opt, true
 }
 
+func (runner *XMLEnums) parseParams(param string) error {
+	if strings.TrimSpace(param) == "" {
+		return fmt.Errorf("no parameter provided: expected 'xml' or 'json'")
+	}
+	for _, part := range strings.Split(param, ",") {
+		part = strings.TrimSpace(part)
+		switch {
+		case part == "xml" || part == "json":
+			runner.mode = part
+		case part == "paths=source_relative":
+			runner.pathsSourceRelative = true
+		default:
+			// Ignore unknown params
+		}
+	}
+	if runner.mode != "xml" && runner.mode != "json" {
+		return fmt.Errorf("unknown or missing parameter: got %q, want 'xml' or 'json'", param)
+	}
+	return nil
+}
+
 func (runner *XMLEnums) getFileName(file *descriptorpb.FileDescriptorProto) (string, error) {
-	name := *file.Name
+	name := file.GetName()
 	if ext := path.Ext(name); ext == ".proto" || ext == ".protodevel" {
 		name = name[:len(name)-len(ext)]
 	}
 
-	parameter := runner.Request.GetParameter()
-	if parameter == "xml" {
+	switch runner.mode {
+	case "xml":
 		name += ".xml.go"
-	} else if parameter == "json" {
+	case "json":
 		name += ".json.go"
-	} else {
-		return "", fmt.Errorf("Unknown parameter %s", parameter)
+	default:
+		return "", fmt.Errorf("unsupported mode %q", runner.mode)
 	}
 
-	if packagePath, _, ok := parsePackageOption(file); ok && packagePath != "" {
-		_, name = path.Split(name)
-		name = path.Join(string(packagePath), name)
+	// If paths=source_relative is NOT set, mirror the original behavior:
+	// move the file under the go_package import path when present.
+	if !runner.pathsSourceRelative {
+		if packagePath, _, ok := parsePackageOption(file); ok && packagePath != "" {
+			_, base := path.Split(name)
+			name = path.Join(packagePath, base)
+		}
 	}
 
 	return name, nil
 }
 
 func (runner *XMLEnums) generateMarshallers(fileTemplate *template.Template, enumTemplate *template.Template) error {
-
 	for _, file := range runner.Request.ProtoFile {
 		fileContent, err, found := applyTemplate(file, fileTemplate, enumTemplate)
-
 		if err != nil {
 			return err
 		}
-
 		if found {
 			filename, err := runner.getFileName(file)
-
 			if err != nil {
 				return err
 			}
-
-			var outFile plugin.CodeGeneratorResponse_File
-			outFile.Name = &filename
-			outFile.Content = &fileContent
-
-			runner.Response.File = append(runner.Response.File, &outFile)
+			outFile := &plugin.CodeGeneratorResponse_File{
+				Name:    &filename,
+				Content: &fileContent,
+			}
+			runner.Response.File = append(runner.Response.File, outFile)
 		}
 	}
-
 	return nil
 }
 
 func (runner *XMLEnums) generateCode() error {
-	// Initialize the output file slice
-	files := make([]*plugin.CodeGeneratorResponse_File, 0)
-	runner.Response.File = files
+	runner.Response.File = make([]*plugin.CodeGeneratorResponse_File, 0)
 
-	var err error
-	parameter := runner.Request.GetParameter()
-	if parameter == "xml" {
-		err = runner.generateMarshallers(xmlFileTemplate, xmlEnumTemplate)
-	} else if parameter == "json" {
-		err = runner.generateMarshallers(jsonFileTemplate, jsonEnumTemplate)
-	} else {
-		return fmt.Errorf("Unknown parameter %s", parameter)
-	}
-
-	if err != nil {
+	// Parse params once
+	if err := runner.parseParams(runner.Request.GetParameter()); err != nil {
 		return err
 	}
 
-	return nil
+	var err error
+	switch runner.mode {
+	case "xml":
+		err = runner.generateMarshallers(xmlFileTemplate, xmlEnumTemplate)
+	case "json":
+		err = runner.generateMarshallers(jsonFileTemplate, jsonEnumTemplate)
+	default:
+		err = fmt.Errorf("unknown mode %q", runner.mode)
+	}
+	return err
 }
 
 var SupportedFeatures = uint64(plugin.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
