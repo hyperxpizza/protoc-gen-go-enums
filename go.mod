@@ -1,14 +1,16 @@
-module github.com/mkmarek/protoc-gen-go-enums
+module github.com/hyperxpizza/protoc-gen-go-enums
 
-go 1.14
+go 1.24.5
 
 require (
-	github.com/favadi/protoc-go-inject-tag v1.1.0 // indirect
 	github.com/golang/protobuf v1.4.2
-	github.com/google/go-cmp v0.5.0 // indirect
 	github.com/iancoleman/strcase v0.1.3
 	github.com/stretchr/testify v1.7.0
-	google.golang.org/grpc v1.27.0 // indirect
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.0.0 // indirect
 	google.golang.org/protobuf v1.25.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
