@@ -16,8 +16,9 @@ import (
 type Runner struct {
 	Request             *plugin.CodeGeneratorRequest
 	Response            *plugin.CodeGeneratorResponse
-	modes               []string // "xml" or "json"
+	modes               []string
 	pathsSourceRelative bool
+	seen                map[string]struct{}
 }
 
 func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath string, pkg string, ok bool) {
@@ -38,21 +39,22 @@ func parsePackageOption(file *descriptorpb.FileDescriptorProto) (packagePath str
 
 func (runner *Runner) parseParams(param string) error {
 	if strings.TrimSpace(param) == "" {
-		return fmt.Errorf("no parameter provided: expected 'xml', 'json' or 'gql")
+		return fmt.Errorf("no parameter provided: expected 'xml', 'json' or 'gql'")
 	}
 	for _, part := range strings.Split(param, ",") {
 		part = strings.TrimSpace(part)
 		switch {
 		case part == "xml" || part == "json" || part == "gql":
 			runner.modes = append(runner.modes, part)
-			continue
 		case part == "paths=source_relative":
 			runner.pathsSourceRelative = true
+		case part == "":
 		default:
+			return fmt.Errorf("unknown parameter %q (allowed: 'xml', 'json', 'gql', 'paths=source_relative')", part)
 		}
 	}
-	if runner.modes == nil {
-		return fmt.Errorf("unknown or missing parameter: got %q, want 'xml, 'json' or 'gql'", param)
+	if len(runner.modes) == 0 {
+		return fmt.Errorf("missing mode: expected one or more of 'xml', 'json', 'gql'")
 	}
 	return nil
 }
@@ -62,7 +64,6 @@ func (runner *Runner) getFileName(file *descriptorpb.FileDescriptorProto, mode s
 	if ext := path.Ext(name); ext == ".proto" || ext == ".protodevel" {
 		name = name[:len(name)-len(ext)]
 	}
-
 	switch mode {
 	case "xml":
 		name += ".enums.xml.go"
@@ -73,50 +74,67 @@ func (runner *Runner) getFileName(file *descriptorpb.FileDescriptorProto, mode s
 	default:
 		return "", fmt.Errorf("unsupported mode %q", mode)
 	}
-
-	// If paths=source_relative is NOT set, mirror the original behavior:
-	// move the file under the go_package import path when present.
 	if !runner.pathsSourceRelative {
 		if packagePath, _, ok := parsePackageOption(file); ok && packagePath != "" {
 			_, base := path.Split(name)
 			name = path.Join(packagePath, base)
 		}
 	}
-
 	return name, nil
 }
 
+func (runner *Runner) filesToGenerate() ([]*descriptorpb.FileDescriptorProto, error) {
+	byName := make(map[string]*descriptorpb.FileDescriptorProto, len(runner.Request.ProtoFile))
+	for _, fd := range runner.Request.ProtoFile {
+		byName[fd.GetName()] = fd
+	}
+	out := make([]*descriptorpb.FileDescriptorProto, 0, len(runner.Request.FileToGenerate))
+	for _, name := range runner.Request.FileToGenerate {
+		fd, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("file_to_generate %q missing from request descriptors", name)
+		}
+		out = append(out, fd)
+	}
+	return out, nil
+}
+
 func (runner *Runner) generateMarshallers(fileTemplate *template.Template, enumTemplate *template.Template, mode string) error {
-	for _, file := range runner.Request.ProtoFile {
+	targets, err := runner.filesToGenerate()
+	if err != nil {
+		return err
+	}
+	for _, file := range targets {
 		fileContent, err, found := applyTemplate(file, fileTemplate, enumTemplate)
 		if err != nil {
 			return err
 		}
-		if found {
-			filename, err := runner.getFileName(file, mode)
-			if err != nil {
-				return err
-			}
-			outFile := &plugin.CodeGeneratorResponse_File{
-				Name:    &filename,
-				Content: &fileContent,
-			}
-			runner.Response.File = append(runner.Response.File, outFile)
+		if !found {
+			continue
 		}
+		filename, err := runner.getFileName(file, mode)
+		if err != nil {
+			return err
+		}
+		if _, exists := runner.seen[filename]; exists {
+			continue
+		}
+		runner.seen[filename] = struct{}{}
+		outFile := &plugin.CodeGeneratorResponse_File{
+			Name:    &filename,
+			Content: &fileContent,
+		}
+		runner.Response.File = append(runner.Response.File, outFile)
 	}
 	return nil
 }
 
 func (runner *Runner) generateCode() error {
 	runner.Response.File = make([]*plugin.CodeGeneratorResponse_File, 0)
-
-	// Parse params once
 	if err := runner.parseParams(runner.Request.GetParameter()); err != nil {
 		return err
 	}
-
 	var err error
-
 	for _, mode := range runner.modes {
 		switch mode {
 		case "xml":
@@ -128,9 +146,11 @@ func (runner *Runner) generateCode() error {
 		default:
 			err = fmt.Errorf("unknown mode %q", mode)
 		}
+		if err != nil {
+			return err
+		}
 	}
-
-	return err
+	return nil
 }
 
 var SupportedFeatures = uint64(plugin.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
@@ -140,27 +160,22 @@ func main() {
 	resp := &plugin.CodeGeneratorResponse{
 		SupportedFeatures: &SupportedFeatures,
 	}
-
 	data, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		panic(err)
 	}
-
-	// You must use the requests unmarshal method to handle this type
 	if err := proto.Unmarshal(data, req); err != nil {
 		panic(err)
 	}
-
 	runner := &Runner{
 		Request:  req,
 		Response: resp,
+		seen:     make(map[string]struct{}),
 	}
-
 	err = runner.generateCode()
 	if err != nil {
 		panic(err)
 	}
-
 	marshalled, err := proto.Marshal(resp)
 	if err != nil {
 		panic(err)
