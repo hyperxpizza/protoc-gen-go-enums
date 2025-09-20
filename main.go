@@ -65,9 +65,9 @@ func (runner *XMLEnums) getFileName(file *descriptorpb.FileDescriptorProto) (str
 
 	switch runner.mode {
 	case "xml":
-		name += ".xml.go"
+		name += ".enums.xml.go"
 	case "json":
-		name += ".json.go"
+		name += ".enums.json.go"
 	default:
 		return "", fmt.Errorf("unsupported mode %q", runner.mode)
 	}

@@ -204,7 +204,6 @@ import (
 `))
 
 	jsonEnumTemplate = template.Must(template.New("enum").Parse(`
-// UnmarshalXML implements xml.Unmarshaler
 func (e *{{.GetName}}) UnmarshalJSON(b []byte) error {
 	var v string
 	if err := json.Unmarshal(b, &v); err != nil {
@@ -234,7 +233,6 @@ func (e *{{.GetName}}) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("Invalid value \"%s\" for enum {{.GetName}}", v)
 }
 
-// MarshalXML implements xml.Marshaler
 func (n {{.GetName}}) MarshalJSON() ([]byte, error) {
 	if val, ok := {{.GetName}}_name[int32(n.Number())]; ok {
 		return json.Marshal(val)
